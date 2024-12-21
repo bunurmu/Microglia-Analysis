@@ -1,0 +1,79 @@
+import cv2
+import numpy as np
+import tifffile as tiff
+
+# Input files
+input_file = '/Users/muberranurbodur/Desktop/Senior II/All Images/221201_female_DAB_K2p2/venv/bin/python/ACG/substack.tif'  # Original file for line detection
+draw_file = '/Users/muberranurbodur/Desktop/Senior II/All Images/221201_female_DAB_K2p2/venv/bin/python/ACG/draw.tif'       # Processed file to extract regions from
+output_file_between = '/Users/muberranurbodur/Desktop/Senior II/All Images/221201_female_DAB_K2p2/ACG/region_superficial.tif'
+output_file_bottom = '/Users/muberranurbodur/Desktop/Senior II/All Images/221201_female_DAB_K2p2/ACG/region_deep.tif'
+
+
+# Define the offset (in pixels) for the second line
+offset = 5
+
+# Read the grayscale image stack (original file for line detection)
+image_stack = tiff.imread(input_file)
+
+# Read the draw file (the processed version to extract regions)
+draw_stack = tiff.imread(draw_file)
+
+# Ensure the two stacks have the same dimensions
+if image_stack.shape != draw_stack.shape:
+    raise ValueError("Input file and draw file must have the same dimensions!")
+
+# Initialize lists to store the extracted regions
+extracted_region_between_stack = []
+extracted_region_bottom_stack = []
+
+# Process each frame in the stack
+for i, frame in enumerate(image_stack):
+    print(f"Processing frame {i + 1}/{len(image_stack)}...")
+
+    # Ensure the frame is 8-bit (grayscale)
+    gray_image = frame.astype(np.uint8)
+
+    # Apply a binary threshold to segment the surface
+    _, binary_image = cv2.threshold(gray_image, 50, 255, cv2.THRESH_BINARY)
+
+    # Create masks for the region between the lines and below the second line
+    mask_between = np.zeros_like(gray_image, dtype=np.uint8)
+    mask_bottom = np.zeros_like(gray_image, dtype=np.uint8)
+
+    # Iterate through each column to find the first white pixel (top line) and the offset line
+    for col in range(binary_image.shape[1]):  # Iterate over columns
+        top_row = None
+
+        # Find the top line
+        for row in range(binary_image.shape[0]):  # Iterate over rows (top to bottom)
+            if binary_image[row, col] > 0:  # If a white pixel is found
+                top_row = row
+                break
+
+        # If top line is found and offset is within bounds, create the mask for the region between lines
+        if top_row is not None and top_row + offset < binary_image.shape[0]:
+            mask_between[top_row:top_row + offset, col] = 255  # Mark the region between the lines
+
+            # Mark the region below the second line (offset part)
+            if top_row + offset < binary_image.shape[0]:
+                mask_bottom[top_row + offset:, col] = 255  # Mark the region below the second line
+
+    # Extract the region from the draw file using the masks
+    extracted_region_between = cv2.bitwise_and(draw_stack[i], draw_stack[i], mask=mask_between)
+    extracted_region_bottom = cv2.bitwise_and(draw_stack[i], draw_stack[i], mask=mask_bottom)
+
+    # Append the extracted regions to their respective stacks
+    extracted_region_between_stack.append(extracted_region_between)
+    extracted_region_bottom_stack.append(extracted_region_bottom)
+
+# Convert the lists of processed frames into NumPy arrays
+extracted_region_between_stack = np.array(extracted_region_between_stack, dtype=np.uint8)
+extracted_region_bottom_stack = np.array(extracted_region_bottom_stack, dtype=np.uint8)
+
+# Save the resulting stacks as TIF files
+tiff.imwrite(output_file_between, extracted_region_between_stack)
+tiff.imwrite(output_file_bottom, extracted_region_bottom_stack)
+
+print(f"Extracted region between the lines saved at {output_file_between}")
+print(f"Extracted region below the second line saved at {output_file_bottom}")
+
